@@ -115,12 +115,20 @@ class CosmicMotionApp:
             index_buffer=self.ctx.buffer(sphere_ibo)
         )
 
-        ring_vbo, ring_ibo, self.ring_indices = generate_ring_disc(inner_radius=1.3, outer_radius=2.6)
-        self.ring_vao = self.ctx.vertex_array(
-            self.prog,
-            [(self.ctx.buffer(ring_vbo), '3f 2f 3f', 'in_position', 'in_texcoord', 'in_normal')],
-            index_buffer=self.ctx.buffer(ring_ibo)
-        )
+        # Ring radii are expressed in units of each planet's equatorial radius.
+        ring_bounds = {
+            "Saturn": (1.24, 2.33),
+            "Uranus": (1.50, 3.86),
+            "Neptune": (1.70, 2.56),
+        }
+        self.ring_vaos = {}
+        for name, (inner_radius, outer_radius) in ring_bounds.items():
+            ring_vbo, ring_ibo, _ = generate_ring_disc(inner_radius, outer_radius, sectors=512)
+            self.ring_vaos[name] = self.ctx.vertex_array(
+                self.prog,
+                [(self.ctx.buffer(ring_vbo), '3f 2f 3f', 'in_position', 'in_texcoord', 'in_normal')],
+                index_buffer=self.ctx.buffer(ring_ibo)
+            )
 
         quad_vbo, quad_ibo, _ = generate_quad()
         self.quad_vao = self.ctx.vertex_array(
@@ -171,7 +179,7 @@ class CosmicMotionApp:
         }
 
         # Background Objects
-        ast_data, self.asteroid_count = generate_asteroid_belt(count=2000, inner_r=19.2, outer_r=21.4)
+        ast_data, self.asteroid_count = generate_asteroid_belt(count=6000, inner_r=19.2, outer_r=21.4)
         self.asteroid_vao = self.ctx.vertex_array(
             self.prog,
             [(self.ctx.buffer(ast_data), '3f 2f 3f', 'in_position', 'in_texcoord', 'in_normal')]
@@ -286,8 +294,8 @@ class CosmicMotionApp:
         # -------------------------------------------------------------
         # 1. PROMINENT CENTERED HEADER (COSMOTION TITLE & STATUS)
         # -------------------------------------------------------------
-        header_width = 340
-        header_height = 84
+        header_width = 408
+        header_height = 108
         imgui.set_next_window_pos((self.width * 0.5 - header_width * 0.5, 15), imgui.Cond_.always)
         imgui.set_next_window_size((header_width, header_height), imgui.Cond_.always)
         imgui.begin(
@@ -299,48 +307,46 @@ class CosmicMotionApp:
             | imgui.WindowFlags_.no_scrollbar
         )
 
-        # Embedded dark title banner box with metallic border
+        # Compact branded command card.
         draw_l = imgui.get_window_draw_list()
         win_pos = imgui.get_window_pos()
         draw_l.add_rect_filled(
-            (win_pos.x + 8, win_pos.y + 6),
-            (win_pos.x + header_width - 8, win_pos.y + 40),
-            imgui.get_color_u32((0.08, 0.10, 0.15, 0.95)),
-            8.0
+            (win_pos.x + 1, win_pos.y + 1),
+            (win_pos.x + header_width - 1, win_pos.y + header_height - 1),
+            imgui.get_color_u32((0.035, 0.05, 0.075, 0.96)), 14.0
         )
         draw_l.add_rect(
-            (win_pos.x + 8, win_pos.y + 6),
-            (win_pos.x + header_width - 8, win_pos.y + 40),
-            imgui.get_color_u32((0.00, 0.78, 1.00, 0.40)),
-            8.0,
-            thickness=1.0
+            (win_pos.x + 1, win_pos.y + 1),
+            (win_pos.x + header_width - 1, win_pos.y + header_height - 1),
+            imgui.get_color_u32((0.15, 0.72, 0.94, 0.42)), 14.0, thickness=1.0
+        )
+        draw_l.add_rect_filled(
+            (win_pos.x + 18, win_pos.y + 16),
+            (win_pos.x + 21, win_pos.y + 53),
+            imgui.get_color_u32((0.08, 0.78, 0.96, 0.95)), 2.0
+        )
+        draw_l.add_text(
+            (win_pos.x + 31, win_pos.y + 11),
+            imgui.get_color_u32((0.47, 0.69, 0.79, 1.0)),
+            "SOLAR SYSTEM // LIVE SIMULATION"
+        )
+        draw_l.add_text(
+            (win_pos.x + 30, win_pos.y + 29),
+            imgui.get_color_u32((0.94, 0.97, 1.0, 1.0)), "COSMOTION"
         )
 
-        # Centered COSMOTION Title
-        title_text = "C O S M O T I O N"
-        text_size = imgui.calc_text_size(title_text)
-        imgui.set_cursor_pos(((header_width - text_size.x) * 0.5, 14))
-        imgui.text_colored((0.95, 0.96, 0.98, 1.0), title_text)
-
-        # Status & Controls Row
-        imgui.set_cursor_pos((18, 48))
-        
         status_color = (0.20, 0.85, 0.55, 1.0) if not self.is_paused else (0.95, 0.30, 0.30, 1.0)
-        status_text = "ONLINE" if not self.is_paused else "OFFLINE"
+        status_text = "RUNNING" if not self.is_paused else "PAUSED"
+        draw_l.add_circle_filled((win_pos.x + 282, win_pos.y + 25), 3.5, imgui.get_color_u32(status_color))
+        draw_l.add_text((win_pos.x + 292, win_pos.y + 18), imgui.get_color_u32(status_color), status_text)
 
-        cur_pos = imgui.get_cursor_screen_pos()
-        draw_l.add_circle_filled((cur_pos.x + 4, cur_pos.y + 7), 3.5, imgui.get_color_u32(status_color))
-        imgui.dummy((10, 0))
-        imgui.same_line()
-        imgui.text_colored(status_color, status_text)
-
-        imgui.same_line(175)
+        imgui.set_cursor_pos((214, 67))
         pause_label = "PLAY" if self.is_paused else "PAUSE"
-        if imgui.button(pause_label, (65, 24)):
+        if imgui.button(pause_label, (82, 27)):
             self.is_paused = not self.is_paused
 
-        imgui.same_line(250)
-        if imgui.button("RESET", (65, 24)):
+        imgui.same_line(306)
+        if imgui.button("RESET", (82, 27)):
             self.selected_body = None
             self.show_info_card = False
             self.camera.set_target(glm.vec3(0.0))
@@ -350,11 +356,40 @@ class CosmicMotionApp:
         # -------------------------------------------------------------
         # 2. TOP-LEFT CONTROL PANEL (Speed ratio range 0.0x to 5.0x)
         # -------------------------------------------------------------
+        panel_width = 320
+        panel_height = 292
         imgui.set_next_window_pos((20, 20), imgui.Cond_.always)
-        imgui.set_next_window_size((310, 245), imgui.Cond_.always)
-        imgui.begin("CONTROL PANEL", None, imgui.WindowFlags_.no_move | imgui.WindowFlags_.no_resize)
+        imgui.set_next_window_size((panel_width, panel_height), imgui.Cond_.always)
+        imgui.begin(
+            "##ControlPanel", None,
+            imgui.WindowFlags_.no_title_bar
+            | imgui.WindowFlags_.no_move
+            | imgui.WindowFlags_.no_resize
+            | imgui.WindowFlags_.no_scrollbar
+        )
+        draw_l = imgui.get_window_draw_list()
+        win_pos = imgui.get_window_pos()
+        draw_l.add_rect_filled(
+            (win_pos.x + 1, win_pos.y + 1), (win_pos.x + panel_width - 1, win_pos.y + panel_height - 1),
+            imgui.get_color_u32((0.035, 0.05, 0.075, 0.94)), 13.0
+        )
+        draw_l.add_rect(
+            (win_pos.x + 1, win_pos.y + 1), (win_pos.x + panel_width - 1, win_pos.y + panel_height - 1),
+            imgui.get_color_u32((0.15, 0.72, 0.94, 0.34)), 13.0, thickness=1.0
+        )
+        draw_l.add_rect_filled(
+            (win_pos.x + 18, win_pos.y + 17), (win_pos.x + 21, win_pos.y + 43),
+            imgui.get_color_u32((0.08, 0.78, 0.96, 0.95)), 2.0
+        )
+        draw_l.add_text(
+            (win_pos.x + 31, win_pos.y + 14), imgui.get_color_u32((0.94, 0.97, 1.0, 1.0)), "FLIGHT CONTROLS"
+        )
+        draw_l.add_text(
+            (win_pos.x + 31, win_pos.y + 31), imgui.get_color_u32((0.45, 0.62, 0.72, 1.0)), "CAMERA  /  SIMULATION"
+        )
 
-        imgui.text_disabled("TARGET NAVIGATION FOCUS:")
+        imgui.set_cursor_pos((18, 61))
+        imgui.text_disabled("TARGET BODY")
         imgui.push_item_width(-1)
         current_name = self.selected_body.name if self.selected_body else "Free Camera (Unlocked)"
         if imgui.begin_combo("##DirectTargetCombo", current_name):
@@ -375,21 +410,18 @@ class CosmicMotionApp:
             imgui.end_combo()
         imgui.pop_item_width()
 
-        imgui.spacing()
-        imgui.separator()
-        imgui.spacing()
-
-        # Speed Ratio Slider bounded between 0.0x and 5.0x
+        imgui.set_cursor_pos((18, 115))
+        imgui.text_disabled("TIME RATE")
+        imgui.set_cursor_pos((18, 135))
         _, self.speed_multiplier = imgui.slider_float("Speed", self.speed_multiplier, 0.0, 5.0, "%.1fx")
-        imgui.spacing()
-
+        imgui.set_cursor_pos((18, 171))
         changed_scale, self.use_true_scale = imgui.checkbox("True Astronomical Scale", self.use_true_scale)
         if changed_scale:
             self.rebuild_orbit_lines()
 
-        imgui.same_line()
+        imgui.set_cursor_pos((18, 198))
         _, self.wireframe_mode = imgui.checkbox("Wireframe [W]", self.wireframe_mode)
-
+        imgui.set_cursor_pos((18, 225))
         _, self.show_labels = imgui.checkbox("Callout Badges", self.show_labels)
 
         imgui.end()
@@ -397,8 +429,11 @@ class CosmicMotionApp:
         # -------------------------------------------------------------
         # 3. BOTTOM-RIGHT TELEMETRY BAR
         # -------------------------------------------------------------
-        imgui.set_next_window_pos((self.width - 660, self.height - 45), imgui.Cond_.always)
-        imgui.set_next_window_size((645, 35), imgui.Cond_.always)
+        nav_width = 870
+        nav_height = 70
+        nav_x = (self.width - nav_width) * 0.5
+        imgui.set_next_window_pos((nav_x, self.height - nav_height - 16), imgui.Cond_.always)
+        imgui.set_next_window_size((nav_width, nav_height), imgui.Cond_.always)
         imgui.begin(
             "##TelemetryOverlay",
             None,
@@ -408,27 +443,41 @@ class CosmicMotionApp:
             | imgui.WindowFlags_.no_scrollbar
         )
 
+        draw_l = imgui.get_window_draw_list()
+        win_pos = imgui.get_window_pos()
+        draw_l.add_rect_filled(
+            (win_pos.x + 1, win_pos.y + 1), (win_pos.x + nav_width - 1, win_pos.y + nav_height - 1),
+            imgui.get_color_u32((0.035, 0.05, 0.075, 0.93)), 13.0
+        )
+        draw_l.add_rect(
+            (win_pos.x + 1, win_pos.y + 1), (win_pos.x + nav_width - 1, win_pos.y + nav_height - 1),
+            imgui.get_color_u32((0.15, 0.72, 0.94, 0.34)), 13.0, thickness=1.0
+        )
+        draw_l.add_rect_filled(
+            (win_pos.x + 18, win_pos.y + 14), (win_pos.x + 21, win_pos.y + 55),
+            imgui.get_color_u32((0.08, 0.78, 0.96, 0.95)), 2.0
+        )
+        draw_l.add_text(
+            (win_pos.x + 31, win_pos.y + 10), imgui.get_color_u32((0.45, 0.66, 0.76, 1.0)), "SYSTEM NAVIGATION"
+        )
+
         if self.selected_body:
             pos = self.selected_body.position
-            imgui.text_colored((0.0, 0.78, 1.0, 1.0), f"TARGET: {self.selected_body.name.upper()}")
-            imgui.same_line(110)
-            imgui.text_disabled("|")
-            imgui.same_line(125)
+            imgui.set_cursor_pos((31, 36))
+            imgui.text_colored((0.0, 0.78, 1.0, 1.0), f"TARGET  {self.selected_body.name.upper()}")
+            imgui.same_line(185)
             imgui.text(f"R: {self.selected_body.orbit_radius:.2f} AU")
-            imgui.same_line(210)
-            imgui.text_disabled("|")
-            imgui.same_line(225)
+            imgui.same_line(300)
             imgui.text(f"V: {self.selected_body.orbit_speed * 29.78:.1f} km/s")
-            imgui.same_line(320)
-            imgui.text_disabled("|")
-            imgui.same_line(335)
+            imgui.same_line(415)
             imgui.text(f"Tilt: {self.selected_body.axial_tilt:.2f}°")
-            imgui.same_line(420)
-            imgui.text_disabled("|")
-            imgui.same_line(435)
+            imgui.same_line(525)
             imgui.text_colored((0.70, 0.85, 1.0, 0.90), f"POS: ({pos.x:+.1f}, {pos.y:+.1f}, {pos.z:+.1f})")
         else:
-            imgui.text_colored((0.95, 0.96, 0.98, 0.8), "SYSTEM NAVIGATION: FREE CAMERA MODE (NO ACTIVE TARGET LOCK)")
+            imgui.set_cursor_pos((31, 36))
+            imgui.text_colored((0.20, 0.85, 0.55, 1.0), "FREE CAMERA")
+            imgui.same_line(175)
+            imgui.text_disabled("No target lock  /  Orbiting system origin")
 
         imgui.end()
 
@@ -565,6 +614,9 @@ class CosmicMotionApp:
             self.prog['model'].write(glm.mat4(1.0))
             self.prog['u_is_sun'].value = False
             self.prog['u_is_orbit'].value = False
+            self.prog['u_is_asteroid'].value = False
+            self.prog['u_is_ring'].value = False
+            self.prog['u_point_size'].value = 1.5
 
             if 'u_is_star' in self.prog:
                 self.prog['u_is_star'].value = True
@@ -580,10 +632,15 @@ class CosmicMotionApp:
             for vao, count in self.orbit_vaos:
                 vao.render(mode=moderngl.LINE_LOOP, vertices=count)
 
-            # 3. Asteroid Belt
+            # 3. Asteroid Belt: individually shaded rocky points.
+            belt_scale = 3.5 if self.use_true_scale else 1.0
+            self.prog['model'].write(glm.scale(glm.mat4(1.0), glm.vec3(belt_scale)))
             self.prog['u_is_sun'].value = False
             self.prog['u_is_orbit'].value = False
+            self.prog['u_is_asteroid'].value = True
+            self.prog['u_point_size'].value = 1.6
             self.asteroid_vao.render(mode=moderngl.POINTS, vertices=self.asteroid_count)
+            self.prog['u_is_asteroid'].value = False
 
             # 4. Sun & Planets
             self.draw_body(self.sun)
@@ -594,17 +651,24 @@ class CosmicMotionApp:
             for moon in self.moons:
                 self.draw_body(moon)
 
-            # 6. Realistic Alpha Ring Rendering
+            # 6. Realistic Alpha Ring Rendering. Keep depth testing for planet
+            # occlusion, but don't let transparent ring fragments block later draws.
+            self.ctx.depth_mask = False
             for p_idx in [5, 6, 7]:
                 planet = self.planets[p_idx]
                 self.prog['model'].write(planet.get_model_matrix(self.sim_time, self.use_true_scale))
                 self.prog['u_is_sun'].value = False
                 self.prog['u_is_orbit'].value = False
+                self.prog['u_is_asteroid'].value = False
+                self.prog['u_is_ring'].value = True
                 
                 ring_tex = self.ring_textures.get(planet.name)
-                if ring_tex:
+                ring_vao = self.ring_vaos.get(planet.name)
+                if ring_tex and ring_vao:
                     ring_tex.use(location=0)
-                self.ring_vao.render()
+                    ring_vao.render()
+            self.prog['u_is_ring'].value = False
+            self.ctx.depth_mask = True
 
             # 7. Atmospheric Glowing Halos
             if not self.wireframe_mode:

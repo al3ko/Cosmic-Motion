@@ -14,8 +14,10 @@ out vec3 v_frag_pos;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform float u_point_size;
 
 void main() {
+    gl_PointSize = u_point_size;
     vec4 world_pos = model * vec4(in_position, 1.0);
     v_frag_pos = vec3(world_pos);
     v_texcoord = in_texcoord;

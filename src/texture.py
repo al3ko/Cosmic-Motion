@@ -6,41 +6,58 @@ from PIL import Image, ImageDraw
 
 
 def generate_ring_texture(ctx: moderngl.Context, planet_name: str) -> moderngl.Texture:
-    """Generates procedural high-resolution alpha ring textures with realistic Cassini/Encke gaps."""
-    width, height = 512, 64
-    img = Image.new('RGBA', (width, height), color=(0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
+    """Create a radial ring map: image V is radius and image U is azimuth."""
+    width, height = 256, 1024
     name = planet_name.lower()
-    if name == "saturn":
-        base_col = (215, 185, 130)
-    elif name == "uranus":
-        base_col = (160, 220, 230)
-    else:  # Neptune
-        base_col = (100, 140, 230)
+    base_col = {
+        "saturn": (205, 177, 126),
+        "uranus": (130, 157, 164),
+        "neptune": (139, 133, 120),
+    }.get(name, (180, 170, 150))
 
-    for x in range(width):
-        t = x / float(width)  # 0.0 (inner) to 1.0 (outer)
-        
-        # Cassini division gap & outer ring falloffs
-        if 0.55 < t < 0.62 or t < 0.05 or t > 0.95:
-            alpha = 0
-        elif 0.3 < t < 0.33:  # Encke gap
-            alpha = 20
+    rng = np.random.default_rng(sum(ord(c) for c in name))
+    pixels = np.zeros((height, width, 4), dtype=np.uint8)
+    angle = np.linspace(0.0, 2.0 * math.pi, width, endpoint=False)
+    azimuth = 0.78 + 0.22 * (0.5 + 0.5 * np.sin(angle * 7.0 + 0.8))
+
+    for y in range(height):
+        r = y / (height - 1)
+        grain = math.sin(r * 680.0) * 0.10 + math.sin(r * 1730.0) * 0.045
+
+        if name == "saturn":
+            # C, B and A rings with the Cassini and Encke divisions.
+            if r < 0.08 or r > 0.99 or 0.72 <= r <= 0.765 or 0.895 <= r <= 0.902:
+                opacity = 0
+            elif r < 0.24:
+                opacity = 72 + 20 * math.sin(r * 155.0)  # translucent C ring
+            elif r < 0.565:
+                opacity = 218 + 24 * math.sin(r * 390.0)  # dense B ring
+            else:
+                opacity = 156 + 35 * math.sin(r * 305.0)  # A ring
+        elif name == "uranus":
+            # Narrow, dark rings with many thin gaps.
+            bands = 0.5 + 0.5 * math.sin(r * 520.0)
+            opacity = 18 + 88 * bands if 0.12 < r < 0.94 else 0
+            if any(abs(r - gap) < 0.012 for gap in (0.31, 0.57, 0.79)):
+                opacity = 0
         else:
-            # Concentric ring bands variance
-            band = math.sin(t * 120.0) * 40 + math.sin(t * 40.0) * 30
-            alpha = max(40, min(220, int(160 + band)))
+            # Neptune's faint dusty rings and incomplete arc-like clumps.
+            bands = 0.5 + 0.5 * math.sin(r * 330.0)
+            opacity = (15 + 48 * bands) if 0.16 < r < 0.95 else 0
+            azimuth = 0.12 + 0.88 * np.clip((np.sin(angle * 2.0 + r * 8.0) + 0.25) * 1.5, 0.0, 1.0)
 
-        r = max(0, min(255, int(base_col[0] + np.random.uniform(-10, 10))))
-        g = max(0, min(255, int(base_col[1] + np.random.uniform(-10, 10))))
-        b = max(0, min(255, int(base_col[2] + np.random.uniform(-10, 10))))
+        opacity = max(0, min(255, int(opacity * max(0.65, min(1.15, 1.0 + grain)))))
+        color_noise = rng.integers(-8, 9, size=width)
+        for channel, base in enumerate(base_col):
+            pixels[y, :, channel] = np.clip((base + color_noise) * azimuth, 0, 255).astype(np.uint8)
+        pixels[y, :, 3] = np.clip(opacity * azimuth, 0, 255).astype(np.uint8)
 
-        draw.line([(x, 0), (x, height)], fill=(r, g, b, alpha))
-
-    texture = ctx.texture(img.size, 4, img.tobytes())
+    img = Image.fromarray(pixels, "RGBA")
+    texture = ctx.texture(img.size, 4, img.tobytes(), alignment=1)
     texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
     texture.build_mipmaps()
+    texture.repeat_x = True
+    texture.repeat_y = False
     return texture
 
 
@@ -103,4 +120,16 @@ def generate_procedural_texture(ctx: moderngl.Context, name: str) -> moderngl.Te
 
 
 def load_texture(ctx: moderngl.Context, path: str, body_name: str = "default") -> moderngl.Texture:
-    return generate_procedural_texture(ctx, body_name)
+    """Load a 2:1 equirectangular surface map, falling back to a generated map."""
+    if not os.path.isfile(path):
+        return generate_procedural_texture(ctx, body_name)
+
+    with Image.open(path) as source:
+        image = source.convert("RGB").transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        texture = ctx.texture(image.size, 3, image.tobytes(), alignment=1)
+
+    texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+    texture.build_mipmaps()
+    texture.repeat_x = True
+    texture.repeat_y = False
+    return texture
